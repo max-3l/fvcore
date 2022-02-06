@@ -1,6 +1,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 from collections import defaultdict
+from copy import deepcopy
 from math import ceil
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
@@ -686,6 +687,7 @@ def flop_count_table(
       corrected_flops = _correct_sums(corrected_flops, computed_flops)
 
     stats = {params_header: params, size_header: sizes, q_size_header: q_sizes, flops_header: computed_flops, corrected_flops_header: corrected_flops}
+    return_stats = deepcopy(stats)
 
     stat_columns = list(stats.keys())
 
@@ -727,7 +729,7 @@ def flop_count_table(
     for mod in to_delete:
         del stats[mod]
 
-    return stats, _model_stats_table(
+    return return_stats, _model_stats_table(
         statistics=stats,
         max_depth=max_depth,
         stat_columns=stat_columns,
