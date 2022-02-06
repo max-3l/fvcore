@@ -650,8 +650,13 @@ def flop_count_table(
     size_header = "#size in bits"
     flops_header, acts_header = "#flops", "#activations"
     if len(quantized_modules) != 0:
-      flops_header = "#flops"
+      flops_header = "#full-size flops"
       corrected_flops_header = "#quantized flops (app.)"
+      size_header = "#full size in bits"
+      q_size_header = "#quantized size in bits"
+
+      
+
 
     model = flops._model
     # cast to dict since pyre doesn't like the implicit defaultdict->dict
@@ -662,6 +667,7 @@ def flop_count_table(
     flops.tracer_warnings("none")
 
     computed_flops = flops.by_module()
+    q_sizes = dict()
     sizes = dict()
     print(quantized_modules)
     for key, size in params.items():
@@ -671,8 +677,9 @@ def flop_count_table(
             print(key, size_mutliplikator)
             size_mutliplikator = bitwidth / 32
             break
-      sizes[key] = ceil(size_mutliplikator * size)
-    sizes = _correct_sums(sizes, params)
+      q_sizes[key] = ceil(size_mutliplikator * size)
+      sizes[key] = 32 * size
+    q_sizes = _correct_sums(q_sizes, params)
     
     stats = {params_header: params, size_header: sizes, flops_header: computed_flops}
 
@@ -687,6 +694,7 @@ def flop_count_table(
         corrected_flops[key] = ceil(corrected_flops[key] * computation_speed)
         corrected_flops = _correct_sums(corrected_flops, computed_flops)
       stats[corrected_flops_header] = corrected_flops
+      stats[q_size_header] = q_sizes
 
     stat_columns = list(stats.keys())
 
