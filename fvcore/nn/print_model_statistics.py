@@ -647,13 +647,11 @@ def flop_count_table(
     qitems.sort(key=lambda x: len(x[0]), reverse=True)
     quantized_modules = {x[0]: x[1] for x in qitems}
     params_header = "#parameters" + (" or shape" if show_param_shapes else "")
-    size_header = "#size in bits"
-    flops_header, acts_header = "#flops", "#activations"
-    if len(quantized_modules) != 0:
-      flops_header = "#full-size flops"
-      corrected_flops_header = "#quantized flops (app.)"
-      size_header = "#full size in bits"
-      q_size_header = "#quantized size in bits"
+    acts_header = "#activations"
+    flops_header = "#full size flops"
+    corrected_flops_header = "#actual flops (app.)"
+    size_header = "#full size in bits"
+    q_size_header = "#actual size in bits"
 
     model = flops._model
     # cast to dict since pyre doesn't like the implicit defaultdict->dict
@@ -678,20 +676,18 @@ def flop_count_table(
       sizes[key] = 32 * size
     q_sizes = _correct_sums(q_sizes, params)
     
-    stats = {params_header: params, size_header: sizes, flops_header: computed_flops}
 
-    if len(quantized_modules) != 0:
-      corrected_flops = dict(computed_flops.copy())
-      for key in computed_flops.keys():
-        computation_speed = 1
-        for q_key, bitwidth in quantized_modules.items():
-          if q_key in key:
-            computation_speed = bitwidth / 32
-            break
-        corrected_flops[key] = ceil(corrected_flops[key] * computation_speed)
-        corrected_flops = _correct_sums(corrected_flops, computed_flops)
-      stats[corrected_flops_header] = corrected_flops
-      stats[q_size_header] = q_sizes
+    corrected_flops = dict(computed_flops.copy())
+    for key in computed_flops.keys():
+      computation_speed = 1
+      for q_key, bitwidth in quantized_modules.items():
+        if q_key in key:
+          computation_speed = bitwidth / 32
+          break
+      corrected_flops[key] = ceil(corrected_flops[key] * computation_speed)
+      corrected_flops = _correct_sums(corrected_flops, computed_flops)
+
+    stats = {params_header: params, size_header: sizes, q_size_header: q_sizes, flops_header: computed_flops, corrected_flops_header: corrected_flops}
 
     stat_columns = list(stats.keys())
 
