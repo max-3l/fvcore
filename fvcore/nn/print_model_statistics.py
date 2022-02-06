@@ -26,6 +26,10 @@ def _get_quantization_keys(model: nn.Module) -> Dict[str, int]:
         if module_name == 'bitorch' or any((x in module.__class__.__name__ for x in ("PactAct", "QConv", "QLinaer", "BEmbeddingBag"))):
             variables = vars(module)
             bitwidth = 1
+            if "_weight_quantize" in variables: 
+              variables = vars(variables["_weight_quantize"])
+            elif "weight_quantize" in variables:
+              variables = vars(variables["weight_quantize"])
             if "bitwidth" in variables:
                 bitwidth = variables["bitwidth"]
             elif "bits" in variables:
@@ -33,6 +37,7 @@ def _get_quantization_keys(model: nn.Module) -> Dict[str, int]:
             elif "bit" in variables:
                 bitwidth = variables["bits"]
             keys[name] = bitwidth
+            print(bitwidth)
     return keys
 
 ### Pre-processing functions ###
