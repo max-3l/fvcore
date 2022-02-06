@@ -1,6 +1,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 from collections import defaultdict
+from math import ceil
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 import tabulate
@@ -662,13 +663,15 @@ def flop_count_table(
 
     computed_flops = flops.by_module()
     sizes = dict()
+    print(quantized_modules)
     for key, size in params.items():
       size_mutliplikator = 1
       for q_key, bitwidth in quantized_modules.items():
           if q_key in key:
+            print(key, size_mutliplikator)
             size_mutliplikator = bitwidth / 32
             break
-      sizes[key] = size_mutliplikator * size  / 8
+      sizes[key] = ceil(size_mutliplikator * size)
     sizes = _correct_sums(sizes, params)
     
     stats = {params_header: params, size_header: sizes, flops_header: computed_flops}
@@ -681,7 +684,7 @@ def flop_count_table(
           if q_key in key:
             computation_speed = bitwidth / 32
             break
-        corrected_flops[key] = corrected_flops[key] * computation_speed
+        corrected_flops[key] = ceil(corrected_flops[key] * computation_speed)
         corrected_flops = _correct_sums(corrected_flops, computed_flops)
       stats[corrected_flops_header] = corrected_flops
 
