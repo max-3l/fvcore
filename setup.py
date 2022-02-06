@@ -52,6 +52,7 @@ setup(
         "tabulate",
         "iopath>=0.1.7",
         "dataclasses; python_version<'3.7'",
+        "bitorch"
     ],
     extras_require={"all": ["shapely"]},
     packages=find_packages(exclude=("tests",)),

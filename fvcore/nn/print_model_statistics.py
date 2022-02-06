@@ -1,10 +1,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
-from audioop import reverse
 from collections import defaultdict
-from copy import deepcopy
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
-from importlib_metadata import method_cache
 
 import tabulate
 import torch
@@ -13,10 +10,30 @@ from torch import nn
 from .activation_count import ActivationCountAnalysis
 from .flop_count import FlopCountAnalysis
 from .parameter_count import parameter_count
+import inspect
 
+def _get_module_name(obj):
+    mod = inspect.getmodule(obj)
+    base, _sep, _stem = mod.__name__.partition('.')
+    return base
+
+def _get_quantization_keys(model: nn.Module) -> Dict[str, int]:
+    keys = {}
+    for name, module in model.named_modules():
+        module_name = _get_module_name(module)
+        if module_name == 'bitorch' or any(lambda x: x in module.__class__.__name__, ("PactAct", "QConv", "QLinaer", "BEmbeddingBag")):
+            variables = vars(module)
+            bitwidth = 1
+            if "bitwidth" in variables:
+                bitwidth = variables["bitwidth"]
+            elif "bits" in variables:
+                bitwidth = variables["bits"]
+            elif "bit" in variables:
+                bitwidth = variables["bits"]
+            keys[name] = bitwidth
+    return keys
 
 ### Pre-processing functions ###
-
 
 def _format_size(x: int, sig_figs: int = 3, hide_zero: bool = False) -> str:
     """
@@ -563,7 +580,8 @@ def flop_count_table(
     max_depth: int = 10,
     activations: Optional[ActivationCountAnalysis] = None,
     show_param_shapes: bool = True,
-    quantized_modules: Dict[str, int] = {"top_mlp": 8}
+    quantized_modules: Dict[str, int] = {},
+    automatic_qmodules: bool = False,
 ) -> str:
     """
     Format the per-module parameters and flops of a model in a table.
@@ -622,6 +640,8 @@ def flop_count_table(
     ::
         print(flop_count_table(FlopCountAnalysis(model, inputs)))
     """
+    if automatic_qmodules:
+        quantized_modules = _get_quantization_keys(flops._model)
     qitems = list(quantized_modules.items())
     qitems.sort(key=lambda x: len(x[0]), reverse=True)
     quantized_modules = {x[0]: x[1] for x in qitems}
