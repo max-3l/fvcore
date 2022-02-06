@@ -578,7 +578,7 @@ def _model_stats_table(
 
 def flop_count_table(
     flops: FlopCountAnalysis,
-    max_depth: int = 10,
+    max_depth: int = 3,
     activations: Optional[ActivationCountAnalysis] = None,
     show_param_shapes: bool = True,
     quantized_modules: Dict[str, int] = {},
@@ -664,12 +664,10 @@ def flop_count_table(
     computed_flops = flops.by_module()
     q_sizes = dict()
     sizes = dict()
-    print(quantized_modules)
     for key, size in params.items():
       size_mutliplikator = 1
       for q_key, bitwidth in quantized_modules.items():
           if q_key in key:
-            print(key, size_mutliplikator)
             size_mutliplikator = bitwidth / 32
             break
       q_sizes[key] = ceil(size_mutliplikator * size)
