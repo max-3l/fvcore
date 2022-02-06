@@ -21,7 +21,7 @@ def _get_quantization_keys(model: nn.Module) -> Dict[str, int]:
     keys = {}
     for name, module in model.named_modules():
         module_name = _get_module_name(module)
-        if module_name == 'bitorch' or any(lambda x: x in module.__class__.__name__, ("PactAct", "QConv", "QLinaer", "BEmbeddingBag")):
+        if module_name == 'bitorch' or any((x in module.__class__.__name__ for x in ("PactAct", "QConv", "QLinaer", "BEmbeddingBag"))):
             variables = vars(module)
             bitwidth = 1
             if "bitwidth" in variables:
@@ -663,7 +663,13 @@ def flop_count_table(
     computed_flops = flops.by_module()
     sizes = dict()
     for key, size in params.items():
-      sizes[key] = 32 * size  / 8
+      size_mutliplikator = 1
+      for q_key, bitwidth in quantized_modules.items():
+          if q_key in key:
+            size_mutliplikator = bitwidth / 32
+            break
+      sizes[key] = size_mutliplikator * size  / 8
+    sizes = _correct_sums(sizes, params)
     
     stats = {params_header: params, size_header: sizes, flops_header: computed_flops}
 
