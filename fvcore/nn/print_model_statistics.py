@@ -583,7 +583,7 @@ def flop_count_table(
     show_param_shapes: bool = True,
     quantized_modules: Dict[str, int] = {},
     automatic_qmodules: bool = False,
-) -> str:
+) -> Tuple[Dict[str, Dict[str, int]], str]:
     """
     Format the per-module parameters and flops of a model in a table.
     It looks like this:
@@ -654,9 +654,6 @@ def flop_count_table(
       corrected_flops_header = "#quantized flops (app.)"
       size_header = "#full size in bits"
       q_size_header = "#quantized size in bits"
-
-      
-
 
     model = flops._model
     # cast to dict since pyre doesn't like the implicit defaultdict->dict
@@ -736,7 +733,7 @@ def flop_count_table(
     for mod in to_delete:
         del stats[mod]
 
-    return _model_stats_table(
+    return stats, _model_stats_table(
         statistics=stats,
         max_depth=max_depth,
         stat_columns=stat_columns,
