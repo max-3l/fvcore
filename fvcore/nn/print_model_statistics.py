@@ -39,6 +39,8 @@ def _get_quantization_keys(model: nn.Module) -> Dict[str, int]:
                 bitwidth = variables["bits"]
             elif "bit" in variables:
                 bitwidth = variables["bits"]
+            if module.__class__.__name__ == "Identity":
+                bitwidth = 32
             keys[name] = bitwidth
     return keys
 
@@ -673,10 +675,10 @@ def flop_count_table(
     q_sizes = dict()
     sizes = dict()
     for key, size in params.items():
-      size_mutliplikator = 1
+      size_mutliplikator = 32
       for q_key, bitwidth in quantized_modules.items():
           if q_key in key:
-            size_mutliplikator = bitwidth / 32
+            size_mutliplikator = bitwidth
             break
       q_sizes[key] = ceil(size_mutliplikator * size)
       sizes[key] = 32 * size
