@@ -1,6 +1,8 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 from collections import defaultdict
+from copy import deepcopy
+from math import ceil
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 import tabulate
@@ -10,10 +12,39 @@ from torch import nn
 from .activation_count import ActivationCountAnalysis
 from .flop_count import FlopCountAnalysis
 from .parameter_count import parameter_count
+import inspect
 
+def _get_module_name(obj):
+    mod = inspect.getmodule(obj)
+    base, _sep, _stem = mod.__name__.partition('.')
+    return base
+
+def _get_quantization_keys(model: nn.Module) -> Dict[str, int]:
+    keys = {}
+    for name, module in model.named_modules():
+        module_name = _get_module_name(module)
+        if module_name == 'bitorch' or any((x in module.__class__.__name__ for x in ("PactAct", "QConv", "QLinaer", "QEmbeddingBag", "BEmbeddingBag"))):
+            variables = vars(module)
+            bitwidth = 1
+            try:
+              variables = vars(module._weight_quantize)
+            except:
+              try:
+                variables = vars(module.weight_quantize)
+              except:
+                pass
+            if "bitwidth" in variables:
+                bitwidth = variables["bitwidth"]
+            elif "bits" in variables:
+                bitwidth = variables["bits"]
+            elif "bit" in variables:
+                bitwidth = variables["bits"]
+            if module.__class__.__name__ == "Identity":
+                bitwidth = 32
+            keys[name] = bitwidth
+    return keys
 
 ### Pre-processing functions ###
-
 
 def _format_size(x: int, sig_figs: int = 3, hide_zero: bool = False) -> str:
     """
@@ -560,7 +591,9 @@ def flop_count_table(
     max_depth: int = 3,
     activations: Optional[ActivationCountAnalysis] = None,
     show_param_shapes: bool = True,
-) -> str:
+    quantized_modules: Dict[str, int] = {},
+    automatic_qmodules: bool = False,
+) -> Tuple[Dict[str, Dict[str, int]], str]:
     """
     Format the per-module parameters and flops of a model in a table.
     It looks like this:
@@ -618,8 +651,17 @@ def flop_count_table(
     ::
         print(flop_count_table(FlopCountAnalysis(model, inputs)))
     """
+    if automatic_qmodules:
+        quantized_modules = _get_quantization_keys(flops._model)
+    qitems = list(quantized_modules.items())
+    qitems.sort(key=lambda x: len(x[0]), reverse=True)
+    quantized_modules = {x[0]: x[1] for x in qitems}
     params_header = "#parameters" + (" or shape" if show_param_shapes else "")
-    flops_header, acts_header = "#flops", "#activations"
+    acts_header = "#activations"
+    flops_header = "#full size flops"
+    corrected_flops_header = "#actual flops (app.)"
+    size_header = "#full size in bits"
+    q_size_header = "#actual size in bits"
 
     model = flops._model
     # cast to dict since pyre doesn't like the implicit defaultdict->dict
@@ -629,8 +671,34 @@ def flop_count_table(
     flops.uncalled_modules_warnings(False)
     flops.tracer_warnings("none")
 
-    stats = {params_header: params, flops_header: flops.by_module()}
-    stat_columns = [params_header, flops_header]
+    computed_flops = flops.by_module()
+    q_sizes = dict()
+    sizes = dict()
+    for key, size in params.items():
+      size_mutliplikator = 32
+      for q_key, bitwidth in quantized_modules.items():
+          if q_key in key:
+            size_mutliplikator = bitwidth
+            break
+      q_sizes[key] = ceil(size_mutliplikator * size)
+      sizes[key] = 32 * size
+    q_sizes = _correct_sums(q_sizes, params)
+    
+
+    corrected_flops = dict(computed_flops.copy())
+    for key in computed_flops.keys():
+      computation_speed = 1
+      for q_key, bitwidth in quantized_modules.items():
+        if q_key in key:
+          computation_speed = bitwidth / 32
+          break
+      corrected_flops[key] = ceil(corrected_flops[key] * computation_speed)
+      corrected_flops = _correct_sums(corrected_flops, computed_flops)
+
+    stats = {params_header: params, size_header: sizes, q_size_header: q_sizes, flops_header: computed_flops, corrected_flops_header: corrected_flops}
+    return_stats = deepcopy(stats)
+
+    stat_columns = list(stats.keys())
 
     if activations is not None:
         activations.unsupported_ops_warnings(False)
@@ -670,8 +738,69 @@ def flop_count_table(
     for mod in to_delete:
         del stats[mod]
 
-    return _model_stats_table(
+    return return_stats, _model_stats_table(
         statistics=stats,
         max_depth=max_depth,
         stat_columns=stat_columns,
     )
+
+
+def _correct_sums(quantized_flops: Dict[str, int], initial_flops: Dict[str, int]):
+  quantized_flops = quantized_flops.copy()
+  initial_flops = initial_flops.copy()
+  all_keys = list(quantized_flops.keys())
+  all_keys.sort(key=lambda x: len(x))
+  module_dict = { "":
+      {
+        "full_key": "",
+        "quantized": quantized_flops[""],
+        "initial": initial_flops[""],
+        "qsum": None,
+        "isum": None,
+        "sub_keys": {}
+      }
+    }
+  for key in all_keys:
+    if key == "":
+      continue
+    splitted = key.split(".")
+    current = module_dict[""]
+    for sub_key in splitted[:-1]:
+      current = current["sub_keys"][sub_key]
+    current["sub_keys"][splitted[-1]] = {
+      "full_key": key,
+      "quantized": quantized_flops[key],
+      "initial": initial_flops[key],
+      "qsum": None,
+      "isum": None,
+      "sub_keys": {}
+    }
+  def build_sum(this_dict: Dict) -> Tuple[float, float]:
+    if this_dict["qsum"] is not None and this_dict["isum"] is not None:
+      return this_dict["qsum"], this_dict["isum"]
+    if len(this_dict["sub_keys"]) == 0:
+      this_dict["qsum"] = this_dict["quantized"] if this_dict["quantized"] is not None else 0
+      this_dict["isum"] = this_dict["initial"] if this_dict["initial"] is not None else 0
+      return this_dict["qsum"], this_dict["isum"]
+    qsums = [build_sum(el)[0] for el in this_dict["sub_keys"].values()]
+    isums = [build_sum(el)[1] for el in this_dict["sub_keys"].values()]
+    sum_of_qsums = sum(qsums)
+    sum_of_isums = sum(isums)
+    this_dict["qsum"] = sum_of_qsums if sum_of_qsums != 0 else this_dict["quantized"]
+    # Check for operations in this layer that were not in children.
+    if sum_of_isums != this_dict["initial"] and sum_of_isums != 0:
+      this_dict["qsum"] = (this_dict["initial"] - sum_of_isums) + this_dict["qsum"]
+    this_dict["isum"] = this_dict["initial"]
+    return this_dict["qsum"], this_dict["isum"]
+  build_sum(module_dict[""])
+  flattend = {}
+  def get_flat(cur, flat):
+    flat[cur["full_key"]] = cur["qsum"]
+    for sub_key in cur["sub_keys"].keys():
+      get_flat(cur["sub_keys"][sub_key], flat)
+  get_flat(module_dict[""], flattend)
+  flat_items = list(flattend.items())
+  initial_keys = list(initial_flops.keys())
+  flat_items.sort(key=lambda x: initial_keys.index(x[0]))
+  flattend = { x[0]: x[1] for x in flat_items }
+  return flattend
