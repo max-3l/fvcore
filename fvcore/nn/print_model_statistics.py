@@ -23,7 +23,7 @@ def _get_quantization_keys(model: nn.Module) -> Dict[str, int]:
     keys = {}
     for name, module in model.named_modules():
         module_name = _get_module_name(module)
-        if module_name == 'bitorch' or any((x in module.__class__.__name__ for x in ("PactAct", "QConv", "QLinaer", "BEmbeddingBag"))):
+        if module_name == 'bitorch' or any((x in module.__class__.__name__ for x in ("PactAct", "QConv", "QLinaer", "QEmbeddingBag", "BEmbeddingBag"))):
             variables = vars(module)
             bitwidth = 1
             try:
